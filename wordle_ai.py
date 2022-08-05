@@ -9,6 +9,7 @@ from more_itertools import locate
 from collections import defaultdict
 from word_data import valid_guesses, valid_answers
 
+
 letterfreqs = []
 for i in range(0, len(valid_guesses[0])):
 	letterfreqs.append({})
@@ -16,6 +17,10 @@ for i in range(0, len(valid_guesses[0])):
 		reader = csv.reader(f)
 		for row in reader:
 			letterfreqs[-1][str(row[0])] = float(row[1])
+
+
+
+
 #######
 def zero():
 	return 0
@@ -26,8 +31,8 @@ def color_word(word1, word2):
 	tested = []
 	for i, c in enumerate(word2):
 		if c not in tested:
-			inds1 = set(locate(word1, lambda y: y == c))
-			inds2 = set(locate(word2, lambda z: z == c))
+			inds1 = set(locate(word1, lambda x: x == c))
+			inds2 = set(locate(word2, lambda x: x == c))
 			if not inds1.issubset(inds2):
 				diff = inds2 - inds1
 				for i in range(0, len(inds1)):
@@ -60,20 +65,87 @@ def score_similarity(word1, word2):
 			score[i] = 1
 	return score
 
+def score_freq(word):
+	global letterfreqs
+	score = []
+	for i, l in enumerate(word):
+		score.append(letterfreqs[i][l])
+	return score
+
+def get_ai_guess(guesses, colors, correct):
+	correct_inds = {}
+	tested_inds = {}
+	disallowed_letters = set()
+	for tryi, word in enumerate(guesses):
+		for j, letter in enumerate(word):
+			if colors[tryi][j] == 'green':
+				if letter in correct_inds.keys():
+					correct_inds[letter].add(j)
+				else:
+					correct_inds[letter] = set([j])
+			elif colors[tryi][j] == 'yellow':
+				if letter in tested_inds.keys():
+					tested_inds[letter].add(j)
+				else:
+					tested_inds[letter] = set([j])
+	for tryi, word in enumerate(guesses):
+		for j, letter in enumerate(word):
+			if colors[tryi][j] == 'white' and letter not in correct_inds.keys() and letter not in tested_inds.keys():
+				disallowed_letters.add(letter)
+	
+	print('known correct: {}'.format(correct_inds))
+	print('tested spots: {}'.format(tested_inds))
+	print('known incorrect: {}'.format(disallowed_letters))
+	# find all valid words with the given combination of green and yellow letters
+	possible_guesses = []
+	cflag = False
+	for word in valid_guesses:
+		cflag = False
+		for i, letter in enumerate(word):
+			letterinds = set(locate(word, lambda x: x == letter))
+			if letter in disallowed_letters:
+				cflag = True
+				break
+			if letter in correct_inds.keys():
+				if not correct_inds[letter].issubset(letterinds):
+					cflag = True
+					break
+			if letter in tested_inds.keys():
+				if i in tested_inds[letter]:
+					cflag = True
+					break
+		if not set(correct_inds.keys()).issubset(set(word)):
+			continue
+		if not set(tested_inds.keys()).issubset(set(word)):
+			continue
+		if not cflag:
+			possible_guesses.append(word)
+	
+	print(possible_guesses)
+	largest = 0
+	for word in possible_guesses:
+		if word in guesses:
+			continue
+		score = sum(score_freq(word))
+		if score > largest:
+			largest = score
+			final_guess = word
+	print(score_freq(final_guess))
+	return final_guess
+
+
+
 if __name__ == '__main__':
 	
 	parser = argparse.ArgumentParser(description='Have an AI guess the given word or a random word using Wordle rules while displaying its progress. Use -p/--play to just play Wordle.')
 	parser.add_argument('-a', '--answer', help="The answer the bot will attempt to guess. Leave blank to generate a random word.", \
 						required=False, default=None)
-	parser.add_argument('-s', '--start', help='The starting word to use. Leave blank to use the optimal starting word.', \
+	parser.add_argument('-s', '--start', help='The starting word for the bot to use. Leave blank to calculate the optimal starting word.', \
 						required=False, default=None)
 	parser.add_argument('-g', '--guess', required=False, help=argparse.SUPPRESS)
-	parser.add_argument('-p', '--play', required=False, default=True, action='store_const', const=False, help='If this flag is present you can just play a Wordle game with a random answer.')
+	parser.add_argument('-p', '--play', required=False, default=False, action='store_const', const=True, help='If this flag is present you can just play a Wordle game with a random answer.')
 	args = parser.parse_args()
 	######
-	
-	
-	
 	
 	
 	optimal = ''
@@ -99,7 +171,7 @@ if __name__ == '__main__':
 				if sum(score) > largest:
 					largest = sum(score)
 					best_starting_word = i
-			print(score_start(optimal, best_starting_word))
+			#print(score_start(optimal, best_starting_word))
 			best_starting_word_c, colors = color_word(optimal, best_starting_word)
 			print('closest legal word to this is ', end='')
 			print(best_starting_word_c)
@@ -123,7 +195,7 @@ if __name__ == '__main__':
 		for i in valid_guesses:
 			if i == args.answer:
 				continue
-			score = score_similarity(args.answer, i)
+			score = score_start(args.answer, i)
 			if sum(score) > largest:
 				largest = sum(score)
 				best_word = i
@@ -143,14 +215,25 @@ if __name__ == '__main__':
 	
 	guesses = []
 	guesses_colored = []
+	scolors = []
 	success = False
 	while True:
-		if len(guesses) >= 7:
+		if len(guesses) >= 6:
 			break
 		print()
 		for word in guesses_colored:
 			print(word)
-		guess = input('Try {}, enter a guess: '.format(len(guesses)))
+		
+		if args.play:
+			guess = input('Try {}, enter a guess: '.format(len(guesses)+1))
+		else:
+			if len(guesses) != 0:
+				# have the AI show what it's doing
+				#guess = random.choice(valid_guesses)
+				guess = get_ai_guess(guesses, scolors, args.answer)
+			else:
+				guess = args.start
+			print('Try {}, enter a guess: {}'.format(len(guesses)+1, guess))
 		if len(guess) == len(args.answer):
 			if guess in valid_guesses:
 				if guess not in guesses:
@@ -158,12 +241,13 @@ if __name__ == '__main__':
 						color_guess, score = color_word(args.answer, guess)
 						guesses_colored.append(color_guess)
 						guesses.append(guess)
+						scolors.append(score)
 						continue
 					else:
 						success = True
 						break
 				else:
-					print('Already used')
+					print('Already used {}'.format(guess))
 			else:
 				print('Not a valid word')
 		else:
